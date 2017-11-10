@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -13,6 +16,7 @@ type SafeMap struct {
 
 var seen = &SafeMap{M: make(map[string]bool)}
 var processed = make(chan string, 1)
+var closed = make(chan struct{}, 10)
 
 func (m *SafeMap) Add(k string) {
 	m.L.Lock()
@@ -31,13 +35,41 @@ func fetch(url string) {
 	processed <- url
 }
 
+func closeChans() {
+	for i := 0; i < 10; i++ {
+		<-closed
+	}
+}
+
+func signalHandler() {
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	// foreach signal received
+	for signal := range c {
+		fmt.Println("Signal received: ", signal.String())
+
+		switch signal {
+		case syscall.SIGINT, syscall.SIGTERM:
+			closeChans()
+			os.Exit(0)
+		case syscall.SIGHUP:
+			fmt.Println("SIGHUP received")
+		}
+
+	}
+}
+
 func main() {
 	urlchan := make(chan string)
-	closed := make(chan struct{}, 10)
-	timeout := make(chan bool, 1)
+	timeout := make(chan struct{}, 1)
+
+	go signalHandler()
+
 	go func() {
 		time.Sleep(30 * time.Second)
-		timeout <- true
+		timeout <- struct{}{}
 	}()
 
 	for i := 0; i < 10; i++ {
@@ -78,9 +110,7 @@ func main() {
 		case <-timeout:
 			// the read from ch has timed out
 			fmt.Println("Timeout")
-			for i := 0; i < 10; i++ {
-				<-closed
-			}
+			closeChans()
 			return
 		}
 	}
