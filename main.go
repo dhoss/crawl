@@ -101,7 +101,7 @@ func main() {
 	close(urlchan)
 
 	// wait for goroutines to settle
-	for i := 0; i < 10; i++ {
+	for {
 		select {
 		case url := <-processed:
 			// a read from ch has occurred
